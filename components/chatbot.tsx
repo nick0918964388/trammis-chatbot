@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useState, useRef, useEffect } from 'react'
-import { ChevronDown, Share2, Bookmark, MoreHorizontal, Send, RefreshCw, Clock, Image as ImageIcon, ChevronLeft, Menu, PlusCircle } from 'lucide-react'
+import { ChevronDown, Share2, Bookmark, MoreHorizontal, Send, RefreshCw, Clock, Image as ImageIcon, ChevronLeft, Menu, PlusCircle, Trash2 } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { chatService } from '@/services/chatService'
 
@@ -10,6 +10,7 @@ interface ChatHistory {
   title: string
   date: string
   messages: Message[]
+  user_id: string // 新增使用者ID欄位
 }
 
 interface Message {
@@ -27,40 +28,14 @@ export function ChatbotComponent({ isNewChat = false }: ChatbotComponentProps) {
   const router = useRouter()
   const [input, setInput] = useState('')
   const [isSidebarOpen, setIsSidebarOpen] = useState(true)
-  const [chatHistory, setChatHistory] = useState<ChatHistory[]>([
-    {
-      id: '1',
-      title: '关于台铁维修的对话',
-      date: '2024-03-10',
-      messages: [
-        { id: '1', content: "台铁的车辆维修周期是多久？", sender: 'user' },
-        { id: '2', content: "台铁的车辆维修周期通常根据车辆类型和使用情况而有所不同。一般来说，主要的维修周期包括：\n\n1. 日常检修：每天进行\n2. 定期检修：通常每3-6个月进行一次\n3. 大修：根据车辆类型，通常每4-8年进行一次\n\n具体的维修周期可能会根据实际情况进行调整。", sender: 'ai' },
-      ]
-    },
-    {
-      id: '2',
-      title: 'MMIS系统使用问题',
-      date: '2024-03-15',
-      messages: [
-        { id: '1', content: "如何在MMIS系统中查看设备维修历史？", sender: 'user' },
-        { id: '2', content: "要在MMIS系统中查看设备维修历史，请按以下步骤操作：\n\n1. 登录MMIS系统\n2. 进入'设备管理'模块\n3. 使用搜索功能或设备列表找到目标设备\n4. 点击设备详情\n5. 在详情页面中，找到'维修历史'或'工作订单'标签\n6. 点击查看完整的维修记录\n\n如果遇到任何问题，请联系系统管理员寻求帮助。", sender: 'ai' },
-      ]
-    },
-    {
-      id: '3',
-      title: '预防性维护计划制定',
-      date: '2024-03-20',
-      messages: [
-        { id: '1', content: "如何为新购入的列车制定预防性维护计划？", sender: 'user' },
-        { id: '2', content: "为新购入的列车制定预防性维护计划，可以遵循以下步骤：\n\n1. 研究制造商提供的维护手册和建议\n2. 分析类似车型的历史维护数据\n3. 确定关键部件和系统\n4. 制定检查和维护的时间表\n5. 设定性能指标和监测方案\n6. 准备所需的工具和备件\n7. 培训维护人员\n8. 在MMIS系统中创建维护计划\n9. 定期评估和调整计划\n\n记得要根据实际运行情况和反馈不断优化维护计划。", sender: 'ai' },
-      ]
-    },
-  ])
+  const [chatHistory, setChatHistory] = useState<ChatHistory[]>([])
   const [currentChat, setCurrentChat] = useState<ChatHistory | null>(null)
   const [selectedImage, setSelectedImage] = useState<string | null>(null)
   const [isRightColumnVisible, setIsRightColumnVisible] = useState(false)
   const [rightColumnWidth, setRightColumnWidth] = useState(400)
   const resizingRef = useRef(false)
+  const [deletingChatId, setDeletingChatId] = useState<string | null>(null)
+  const [userId, setUserId] = useState<string>('nickyin') // 假設當前使用者ID為 'NY'
 
   useEffect(() => {
     if (!isNewChat) {
@@ -70,10 +45,10 @@ export function ChatbotComponent({ isNewChat = false }: ChatbotComponentProps) {
 
   const loadAllChatHistories = async () => {
     try {
-      const histories = await chatService.getAllChatHistories();
+      const histories = await chatService.getAllChatHistories(userId);
       setChatHistory(histories);
     } catch (error) {
-      console.error('加载聊天历史失败:', error);
+      console.error('載入聊天歷史失敗:', error);
     }
   };
 
@@ -82,22 +57,31 @@ export function ChatbotComponent({ isNewChat = false }: ChatbotComponentProps) {
     if (input.trim()) {
       const newMessage: Message = { id: Date.now().toString(), content: input, sender: 'user' }
       if (currentChat) {
-        const updatedChat = {
-          ...currentChat,
-          messages: [...currentChat.messages, newMessage]
-        };
-        setCurrentChat(updatedChat);
-        await saveChatHistory(updatedChat);
+        try {
+          const updatedChat = await chatService.appendMessageToChat(currentChat.id, {
+            content: input,
+            sender: 'user'
+          });
+          setCurrentChat(updatedChat);
+        } catch (error) {
+          console.error('添加訊息到聊天歷史失敗:', error);
+        }
       } else {
+        // 處理新對話的邏輯
         const newChat: ChatHistory = {
           id: Date.now().toString(),
-          title: `新对话 ${chatHistory.length + 1}`,
+          title: input.trim(), // 使用使用者輸入的第一句話作為標題
           date: new Date().toISOString().split('T')[0],
-          messages: [newMessage]
+          messages: [newMessage],
+          user_id: userId
         }
-        setChatHistory([...chatHistory, newChat]);
-        setCurrentChat(newChat);
-        await saveChatHistory(newChat);
+        try {
+          const createdChat = await chatService.saveChatHistory(newChat);
+          setChatHistory([...chatHistory, createdChat]);
+          setCurrentChat(createdChat);
+        } catch (error) {
+          console.error('創建新聊天歷史失敗:', error);
+        }
       }
       setInput('')
     }
@@ -107,13 +91,13 @@ export function ChatbotComponent({ isNewChat = false }: ChatbotComponentProps) {
     try {
       await chatService.saveChatHistory(chat);
     } catch (error) {
-      console.error('保存聊天历史失败:', error);
+      console.error('保存聊天歷史失敗:', error);
     }
   };
 
   const handleRefresh = () => {
-    // 处理对话刷新
-    console.log('刷新对话')
+    // 處理對話刷新
+    console.log('刷新對話')
   }
 
   const handleHistoryItemClick = async (chat: ChatHistory) => {
@@ -123,7 +107,7 @@ export function ChatbotComponent({ isNewChat = false }: ChatbotComponentProps) {
       setIsRightColumnVisible(false);
       setSelectedImage(null);
     } catch (error) {
-      console.error('加载聊天历史失败:', error);
+      console.error('載入聊天歷史失敗:', error);
     }
   }
 
@@ -175,9 +159,33 @@ export function ChatbotComponent({ isNewChat = false }: ChatbotComponentProps) {
     }
   }, [])
 
+  const handleDeleteClick = (chatId: string, event: React.MouseEvent) => {
+    event.stopPropagation();
+    setDeletingChatId(chatId);
+  };
+
+  const handleConfirmDelete = async () => {
+    if (deletingChatId) {
+      try {
+        await chatService.deleteChatHistory(deletingChatId);
+        setChatHistory(chatHistory.filter(chat => chat.id !== deletingChatId));
+        if (currentChat && currentChat.id === deletingChatId) {
+          setCurrentChat(null);
+        }
+      } catch (error) {
+        console.error('刪除聊天歷史失敗:', error);
+      }
+      setDeletingChatId(null);
+    }
+  };
+
+  const handleCancelDelete = () => {
+    setDeletingChatId(null);
+  };
+
   return (
     <div className="flex h-screen bg-white">
-      {/* 侧边栏 */}
+      {/* 側邊欄 */}
       <div className={`${isSidebarOpen ? 'w-64' : 'w-0'} transition-all duration-300 ease-in-out overflow-hidden border-r`}>
         <div className="p-4">
           <button
@@ -185,58 +193,65 @@ export function ChatbotComponent({ isNewChat = false }: ChatbotComponentProps) {
             className="w-full mb-4 p-2 flex items-center justify-center text-white bg-blue-500 rounded-md hover:bg-blue-600"
           >
             <PlusCircle className="w-5 h-5 mr-2" />
-            新对话
+            新對話
           </button>
-          <h2 className="text-xl font-semibold mb-4">聊天历史</h2>
+          <h2 className="text-xl font-semibold mb-4">聊天歷史</h2>
           <div className="space-y-2">
             {chatHistory.map((chat) => (
-              <button
-                key={chat.id}
-                onClick={() => handleHistoryItemClick(chat)}
-                className="w-full text-left p-2 hover:bg-gray-100 rounded-md"
-              >
-                <p className="font-medium">{chat.title}</p>
-                <p className="text-sm text-gray-500">{chat.date}</p>
-              </button>
+              <div key={chat.id} className="flex items-center justify-between">
+                <button
+                  onClick={() => handleHistoryItemClick(chat)}
+                  className="flex-grow text-left p-2 hover:bg-gray-100 rounded-md"
+                >
+                  <p className="font-medium">{chat.title}</p>
+                  <p className="text-sm text-gray-500">{chat.date}</p>
+                </button>
+                <button
+                  onClick={(e) => handleDeleteClick(chat.id, e)}
+                  className="p-2 text-gray-500 hover:text-red-500"
+                  aria-label="刪除聊天"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              </div>
             ))}
           </div>
         </div>
       </div>
 
-      {/* 主要内容区域 */}
+      {/* 主要內容區域 */}
       <div className="flex-1 flex flex-col">
-        {/* 头部 */}
+        {/* 頭部 */}
         <header className="flex items-center justify-between p-4 border-b">
           <div className="flex items-center space-x-4">
             <button
               onClick={() => setIsSidebarOpen(!isSidebarOpen)}
               className="p-2 text-gray-600 hover:bg-gray-100 rounded-full"
-              aria-label="切换侧边栏"
+              aria-label="切換側邊欄"
             >
               <Menu className="w-5 h-5" />
             </button>
             <div className="flex items-center space-x-2">
-              <img src="/images/trammis-logo.jpg" alt="台铁MMIS Logo" className="w-8 h-8" />
-              <h1 className="text-xl font-semibold">臺鐵MMIS检修助手</h1>
+              <img src="/images/trammis-logo.jpg" alt="臺鐵MMIS Logo" className="w-8 h-8" />
+              <h1 className="text-xl font-semibold">臺鐵MMIS檢修助手</h1>
             </div>
           </div>
           <div className="flex items-center space-x-4">
             <button
               onClick={handleRefresh}
               className="p-2 text-gray-600 hover:bg-gray-100 rounded-full"
-              aria-label="刷新对话"
+              aria-label="刷新對話"
             >
               <RefreshCw className="w-5 h-5" />
             </button>
-            <button className="px-3 py-1 text-sm bg-gray-100 rounded-full">使用者:NY</button>                        
-            {/* <img src="/placeholder.svg?height=32&width=32" alt="用户头像" className="w-8 h-8 rounded-full" /> */}
+            <button className="px-3 py-1 text-sm bg-gray-100 rounded-full">使用者:{userId}</button>
             <ChevronDown className="w-4 h-4" />
           </div>
         </header>
 
-        {/* 两栏布局 */}
+        {/* 兩欄布局 */}
         <div className="flex-1 flex overflow-hidden">
-          {/* 聊天区域 */}
+          {/* 聊天區域 */}
           <div className={`flex-1 overflow-y-auto p-4 space-y-6 ${isRightColumnVisible ? 'pr-8' : ''}`}>
             {currentChat && currentChat.messages.map((message) => (
               <div key={message.id} className={`flex ${message.sender === 'user' ? 'justify-end' : 'justify-start'}`}>
@@ -248,7 +263,7 @@ export function ChatbotComponent({ isNewChat = false }: ChatbotComponentProps) {
                       className="mt-2 flex items-center text-blue-500 hover:underline"
                     >
                       <ImageIcon className="w-4 h-4 mr-1" />
-                      查看图片
+                      查看圖片
                     </button>
                   )}
                 </div>
@@ -256,7 +271,7 @@ export function ChatbotComponent({ isNewChat = false }: ChatbotComponentProps) {
             ))}
           </div>
 
-          {/* 可调整大小的右栏 */}
+          {/* 可調整大小的右欄 */}
           {isRightColumnVisible && (
             <>
               <div
@@ -273,10 +288,10 @@ export function ChatbotComponent({ isNewChat = false }: ChatbotComponentProps) {
                     className="mb-4 flex items-center text-gray-600 hover:text-gray-800"
                   >
                     <ChevronLeft className="w-5 h-5 mr-1" />
-                    关闭
+                    關閉
                   </button>
                   {selectedImage && (
-                    <img src={selectedImage} alt="选中的内容" className="w-full h-auto rounded-lg shadow-lg" />
+                    <img src={selectedImage} alt="選中的內容" className="w-full h-auto rounded-lg shadow-lg" />
                   )}
                 </div>
               </div>
@@ -284,14 +299,14 @@ export function ChatbotComponent({ isNewChat = false }: ChatbotComponentProps) {
           )}
         </div>
 
-        {/* 输入区域 */}
+        {/* 輸入區域 */}
         <div className="border-t p-4">
           <form onSubmit={handleSubmit} className="flex items-center space-x-2">
             <input
               type="text"
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              placeholder="问任何问题..."
+              placeholder="問任何問題..."
               className="flex-1 p-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
             <button type="submit" className="p-2 bg-blue-500 text-white rounded-md hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2">
@@ -301,7 +316,7 @@ export function ChatbotComponent({ isNewChat = false }: ChatbotComponentProps) {
         </div>
       </div>
 
-      {/* 浮动操作按钮 */}
+      {/* 浮動操作按鈕 */}
       <div className="fixed bottom-20 right-4 space-y-2">
         <button className="p-2 bg-white rounded-full shadow-md hover:bg-gray-100">
           <Share2 className="w-5 h-5" />
@@ -313,6 +328,30 @@ export function ChatbotComponent({ isNewChat = false }: ChatbotComponentProps) {
           <MoreHorizontal className="w-5 h-5" />
         </button>
       </div>
+
+      {/* 刪除確認對話框 */}
+      {deletingChatId && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center">
+          <div className="bg-white p-6 rounded-lg">
+            <h3 className="text-lg font-semibold mb-4">確認刪除</h3>
+            <p className="mb-4">您確定要刪除這個聊天歷史嗎？此操作無法撤銷。</p>
+            <div className="flex justify-end space-x-4">
+              <button
+                onClick={handleCancelDelete}
+                className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded"
+              >
+                取消
+              </button>
+              <button
+                onClick={handleConfirmDelete}
+                className="px-4 py-2 bg-red-500 text-white hover:bg-red-600 rounded"
+              >
+                刪除
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
